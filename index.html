@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WargaConnect - Komunitas Lokal</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Firebase SDK (Compat Version) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen pb-10">
+
+  <!-- NAVBAR -->
+  <header class="bg-blue-600 text-white shadow-md sticky top-0 z-50">
+    <div class="max-w-2xl mx-auto px-4 py-3 flex justify-between items-center">
+      <h1 class="text-xl font-bold tracking-wide">WargaConnect</h1>
+      <div id="navUser" class="hidden flex items-center gap-3">
+        <span id="userDisplayName" class="text-sm font-medium bg-blue-700 px-3 py-1 rounded-full"></span>
+        <button onclick="logout()" class="text-xs bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded transition">Keluar</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-4 mt-6">
+
+    <!-- FORM LOGIN & REGISTER (Tampil jika belum login) -->
+    <div id="authSection" class="bg-white p-6 rounded-xl shadow-md border border-gray-200 max-w-md mx-auto">
+      <h2 id="authTitle" class="text-xl font-bold text-gray-800 mb-4 text-center">Masuk ke Akun Warga</h2>
+      
+      <div class="space-y-4">
+        <div id="nameGroup" class="hidden">
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Nama Lengkap</label>
+          <input type="text" id="fullName" placeholder="Pak Budi / Bu Rahayu" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Email</label>
+          <input type="email" id="email" placeholder="nama@email.com" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Kata Sandi</label>
+          <input type="password" id="password" placeholder="Minimal 6 karakter" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        
+        <p id="authError" class="text-red-500 text-xs hidden"></p>
+
+        <button id="authBtn" onclick="handleAuth()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg transition">Masuk</button>
+        
+        <p class="text-xs text-center text-gray-600 mt-2">
+          <span id="authToggleText">Belum punya akun?</span>
+          <button onclick="toggleAuthMode()" id="authToggleBtn" class="text-blue-600 font-semibold underline ml-1">Daftar di sini</button>
+        </p>
+      </div>
+    </div>
+
+    <!-- UTAMA / FEED (Tampil jika sudah login) -->
+    <div id="appSection" class="hidden space-y-6">
+
+      <!-- BUAT STATUS -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+        <textarea id="postInput" rows="3" placeholder="Apa pengumuman atau info warga hari ini?" class="w-full p-3 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"></textarea>
+        <div class="flex justify-end mt-2">
+          <button onclick="createPost()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition">Bagikan Status</button>
+        </div>
+      </div>
+
+      <!-- DAFTAR POSTINGAN (FEED) -->
+      <div id="postsFeed" class="space-y-4">
+        <p class="text-center text-gray-500 text-sm py-8">Memuat postingan warga...</p>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // ==========================================
+    // 1. KONFIGURASI FIREBASE (GANTI DENGAN MILIKMU)
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "PASTE_API_KEY_KAMU_DI_SINI",
+      authDomain: "PROJECT_ID_KAMU.firebaseapp.com",
+      projectId: "PROJECT_ID_KAMU",
+      storageBucket: "PROJECT_ID_KAMU.appspot.com",
+      messagingSenderId: "SENDER_ID_KAMU",
+      appId: "APP_ID_KAMU"
+    };
+
+    // Inisialisasi Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // State Lokal
+    let currentUser = null;
+    let isRegisterMode = false;
+
+    // ==========================================
+    // 2. MANAJEMEN AUTENTIKASI (LOGIN / REGISTER)
+    // ==========================================
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        currentUser = user;
+        document.getElementById('authSection').classList.add('hidden');
+        document.getElementById('appSection').classList.remove('hidden');
+        document.getElementById('navUser').classList.remove('hidden');
+        document.getElementById('userDisplayName').innerText = user.displayName || user.email;
+        loadPosts();
+      } else {
+        currentUser = null;
+        document.getElementById('authSection').classList.remove('hidden');
+        document.getElementById('appSection').classList.add('hidden');
+        document.getElementById('navUser').classList.add('hidden');
+      }
+    });
+
+    function toggleAuthMode() {
+      isRegisterMode = !isRegisterMode;
+      document.getElementById('nameGroup').classList.toggle('hidden', !isRegisterMode);
+      document.getElementById('authTitle').innerText = isRegisterMode ? 'Daftar Akun Warga Baru' : 'Masuk ke Akun Warga';
+      document.getElementById('authBtn').innerText = isRegisterMode ? 'Daftar' : 'Masuk';
+      document.getElementById('authToggleText').innerText = isRegisterMode ? 'Sudah punya akun?' : 'Belum punya akun?';
+      document.getElementById('authToggleBtn').innerText = isRegisterMode ? 'Masuk di sini' : 'Daftar di sini';
+      document.getElementById('authError').classList.add('hidden');
+    }
+
+    async function handleAuth() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const fullName = document.getElementById('fullName').value.trim();
+      const errEl = document.getElementById('authError');
+      errEl.classList.add('hidden');
+
+      if (!email || !password) {
+        errEl.innerText = "Email dan password wajib diisi!";
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      try {
+        if (isRegisterMode) {
+          if (!fullName) {
+            errEl.innerText = "Nama lengkap wajib diisi!";
+            errEl.classList.remove('hidden');
+            return;
+          }
+          const res = await auth.createUserWithEmailAndPassword(email, password);
+          await res.user.updateProfile({ displayName: fullName });
+          await db.collection('users').doc(res.user.uid).set({
+            uid: res.user.uid,
+            name: fullName,
+            email: email,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } else {
+          await auth.signInWithEmailAndPassword(email, password);
+        }
+      } catch (err) {
+        errEl.innerText = err.message;
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      auth.signOut();
+    }
+
+    // ==========================================
+    // 3. FITUR POSTINGAN & INTERAKSI (FIRESTORE)
+    // ==========================================
+    async function createPost() {
+      const text = document.getElementById('postInput').value.trim();
+      if (!text) return;
+
+      try {
+        await db.collection('posts').add({
+          content: text,
+          authorUid: currentUser.uid,
+          authorName: currentUser.displayName || "Warga Anonim",
+          likes: [],
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        document.getElementById('postInput').value = '';
+      } catch (err) {
+        alert("Gagal membuat status: " + err.message);
+      }
+    }
+
+    function loadPosts() {
+      db.collection('posts')
+        .orderBy('createdAt', 'desc')
+        .onSnapshot((snapshot) => {
+          const feed = document.getElementById('postsFeed');
+          feed.innerHTML = '';
+
+          if (snapshot.empty) {
+            feed.innerHTML = '<p class="text-center text-gray-500 text-sm py-8">Belum ada postingan warga.</p>';
+            return;
+          }
+
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            const postId = doc.id;
+            const likesCount = data.likes ? data.likes.length : 0;
+            const isLiked = data.likes && data.likes.includes(currentUser.uid);
+
+            const postEl = document.createElement('div');
+            postEl.className = "bg-white p-4 rounded-xl shadow-sm border border-gray-200 space-y-3";
+            postEl.innerHTML = `
+              <div class="flex items-center justify-between">
+                <div>
+                  <h4 class="font-bold text-gray-800 text-sm">${escapeHtml(data.authorName)}</h4>
+                  <span class="text-xs text-gray-400">Tetangga</span>
+                </div>
+              </div>
+              <p class="text-gray-700 text-sm whitespace-pre-line">${escapeHtml(data.content)}</p>
+              
+              <div class="flex items-center gap-4 pt-2 border-t border-gray-100 text-xs">
+                <button onclick="toggleLike('${postId}', ${isLiked})" class="flex items-center gap-1 font-semibold ${isLiked ? 'text-red-500' : 'text-gray-500 hover:text-red-500'}">
+                  <span>${isLiked ? '❤️' : '🤍'}</span>
+                  <span>${likesCount} Suka</span>
+                </button>
+              </div>
+
+              <!-- KOLOM KOMENTAR -->
+              <div class="pt-2 space-y-2">
+                <div id="comments-${postId}" class="space-y-1.5 text-xs text-gray-600 bg-gray-50 p-2 rounded-lg">
+                  <p class="text-gray-400 italic">Memuat komentar...</p>
+                </div>
+                <div class="flex gap-2">
+                  <input type="text" id="input-comment-${postId}" placeholder="Tulis komentar..." class="w-full px-2.5 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500">
+                  <button onclick="addComment('${postId}')" class="bg-gray-800 hover:bg-black text-white text-xs px-3 py-1.5 rounded-lg transition">Kirim</button>
+                </div>
+              </div>
+            `;
+            feed.appendChild(postEl);
+            loadComments(postId);
+          });
+        });
+    }
+
+    async function toggleLike(postId, isLiked) {
+      const postRef = db.collection('posts').doc(postId);
+      if (isLiked) {
+        await postRef.update({ likes: firebase.firestore.FieldValue.arrayRemove(currentUser.uid) });
+      } else {
+        await postRef.update({ likes: firebase.firestore.FieldValue.arrayUnion(currentUser.uid) });
+      }
+    }
+
+    function loadComments(postId) {
+      db.collection('posts').doc(postId).collection('comments')
+        .orderBy('createdAt', 'asc')
+        .onSnapshot((snapshot) => {
+          const commentContainer = document.getElementById(`comments-${postId}`);
+          commentContainer.innerHTML = '';
+
+          if (snapshot.empty) {
+            commentContainer.innerHTML = '<p class="text-gray-400 italic">Belum ada komentar.</p>';
+            return;
+          }
+
+          snapshot.forEach((doc) => {
+            const cData = doc.data();
+            const div = document.createElement('div');
+            div.className = "border-b border-gray-200 pb-1 last:border-0";
+            div.innerHTML = `<span class="font-bold text-gray-800">${escapeHtml(cData.authorName)}:</span> ${escapeHtml(cData.text)}`;
+            commentContainer.appendChild(div);
+          });
+        });
+    }
+
+    async function addComment(postId) {
+      const input = document.getElementById(`input-comment-${postId}`);
+      const text = input.value.trim();
+      if (!text) return;
+
+      try {
+        await db.collection('posts').doc(postId).collection('comments').add({
+          text: text,
+          authorName: currentUser.displayName || "Warga",
+          authorUid: currentUser.uid,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        input.value = '';
+      } catch (err) {
+        alert("Gagal mengirim komentar: " + err.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      return str ? str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") : '';
+    }
+  </script>
+</body>
+</html>
